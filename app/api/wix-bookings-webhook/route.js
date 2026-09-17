@@ -2,6 +2,7 @@ const HUBSPOT_BASE = "https://api.hubapi.com";
 
 const STAGE_QUOTE_CALL = "6060237033";
 const STAGE_REVIEW = "6060237034";
+const WEBHOOK_SECRET = process.env.WIX_WEBHOOK_SECRET;
 
 function matchStage(serviceName) {
   if (!serviceName) return null;
@@ -14,6 +15,7 @@ function matchStage(serviceName) {
   }
   return null;
 }
+
 function extractFields(body) {
   const email = body?.contact?.email ?? body?.email ?? null;
   const nameObj = body?.contact?.name ?? {};
@@ -28,6 +30,7 @@ function extractFields(body) {
     body?.start_time_timestamp_with_timezone ?? body?.start_date ?? null;
   return { email, firstName, lastName, phone, serviceName, startDate };
 }
+
 async function hubspotFetch(path, init) {
   const res = await fetch(`${HUBSPOT_BASE}${path}`, {
     ...init,
@@ -55,7 +58,9 @@ async function findContactByEmail(email) {
     }),
   });
   return result.results?.[0] ?? null;
-  async function upsertContact(fields) {
+}
+
+async function upsertContact(fields) {
   const existing = await findContactByEmail(fields.email);
   const properties = {
     email: fields.email,
@@ -95,9 +100,12 @@ async function createDeal(params) {
   );
 
   return deal;
-  export async function POST(req) {
-  const secret = req.headers.get("x-webhook-secret");
-  if (secret !== process.env.WIX_WEBHOOK_SECRET) {
+}
+
+export async function POST(req) {
+  const url = new URL(req.url);
+  const secret = url.searchParams.get("secret");
+  if (secret !== WEBHOOK_SECRET) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -133,6 +141,4 @@ async function createDeal(params) {
   });
 
   return Response.json({ ok: true, contactId, dealId: deal.id });
-  }
-}
 }
