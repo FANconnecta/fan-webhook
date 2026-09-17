@@ -1,26 +1,33 @@
-const SERVICE_TO_STAGE = {
-  "7571b5f2-d2cf-40b0-99ef-e35ab6ef20da": {
-    stageId: "6060237033",
-    entryRoute: "quote_call",
-  },
-  "8815cd30-c46e-4a70-92ea-b09debb40b20": {
-    stageId: "6060237034",
-    entryRoute: "direct_review",
-  },
-};
-
 const HUBSPOT_BASE = "https://api.hubapi.com";
 
+const STAGE_QUOTE_CALL = "6060237033";
+const STAGE_REVIEW = "6060237034";
+
+function matchStage(serviceName) {
+  if (!serviceName) return null;
+  const name = serviceName.toLowerCase();
+  if (name.includes("quote")) {
+    return { stageId: STAGE_QUOTE_CALL, entryRoute: "quote_call" };
+  }
+  if (name.includes("review")) {
+    return { stageId: STAGE_REVIEW, entryRoute: "direct_review" };
+  }
+  return null;
+}
 function extractFields(body) {
   const email = body?.contact?.email ?? body?.email ?? null;
-  const firstName = body?.contact?.firstName ?? body?.firstName ?? "";
-  const lastName = body?.contact?.lastName ?? body?.lastName ?? "";
-  const phone = body?.contact?.phone ?? body?.phone ?? "";
-  const serviceId = body?.booking?.serviceId ?? body?.serviceId ?? null;
-  const startDate = body?.booking?.startDate ?? body?.startDate ?? null;
-  return { email, firstName, lastName, phone, serviceId, startDate };
+  const nameObj = body?.contact?.name ?? {};
+  const firstName =
+    nameObj.first ?? nameObj.given ?? nameObj.firstName ?? body?.firstName ?? "";
+  const lastName =
+    nameObj.last ?? nameObj.family ?? nameObj.lastName ?? body?.lastName ?? "";
+  const phone =
+    body?.booking_contact_phone ?? body?.contact?.phone ?? "";
+  const serviceName = body?.service_name ?? body?.serviceName ?? null;
+  const startDate =
+    body?.start_time_timestamp_with_timezone ?? body?.start_date ?? null;
+  return { email, firstName, lastName, phone, serviceName, startDate };
 }
-
 async function hubspotFetch(path, init) {
   const res = await fetch(`${HUBSPOT_BASE}${path}`, {
     ...init,
@@ -48,9 +55,7 @@ async function findContactByEmail(email) {
     }),
   });
   return result.results?.[0] ?? null;
-}
-
-async function upsertContact(fields) {
+  async function upsertContact(fields) {
   const existing = await findContactByEmail(fields.email);
   const properties = {
     email: fields.email,
@@ -90,31 +95,29 @@ async function createDeal(params) {
   );
 
   return deal;
-}
-
-export async function POST(req) {
+  export async function POST(req) {
   const secret = req.headers.get("x-webhook-secret");
   if (secret !== process.env.WIX_WEBHOOK_SECRET) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const body = await req.json();
-  const { email, firstName, lastName, phone, serviceId, startDate } =
+  const { email, firstName, lastName, phone, serviceName, startDate } =
     extractFields(body);
 
-  if (!email || !serviceId) {
-    console.error("Wix webhook missing email or serviceId. Raw body:", body);
+  if (!email || !serviceName) {
+    console.error("Missing email or service name. Raw body:", body);
     return Response.json(
-      { error: "missing email or serviceId", received: body },
+      { error: "missing email or service name", received: body },
       { status: 400 }
     );
   }
 
-  const mapping = SERVICE_TO_STAGE[serviceId];
+  const mapping = matchStage(serviceName);
   if (!mapping) {
-    console.error("Unrecognised Wix service ID:", serviceId);
+    console.error("Unrecognised service name:", serviceName);
     return Response.json(
-      { error: "unrecognised service id", serviceId },
+      { error: "unrecognised service name", serviceName },
       { status: 400 }
     );
   }
@@ -130,4 +133,6 @@ export async function POST(req) {
   });
 
   return Response.json({ ok: true, contactId, dealId: deal.id });
+  }
+}
 }
